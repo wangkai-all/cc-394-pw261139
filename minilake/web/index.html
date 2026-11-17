@@ -1,0 +1,430 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>minilake · 版本化列统计湖仓控制台</title>
+<style>
+  :root {
+    --bg: #0f141b; --panel: #171e28; --panel2: #1d2632; --line: #2a3646;
+    --text: #d7e0ea; --muted: #8595a7; --accent: #4ea1ff; --accent2: #7ee0c3;
+    --warn: #f0b457; --bad: #ff6b6b; --ok: #5fd08a; --purple: #b98cff;
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--text);
+    font:13px/1.55 -apple-system, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif; }
+  header { padding:14px 22px; border-bottom:1px solid var(--line);
+    display:flex; align-items:center; gap:16px; background:var(--panel); }
+  header h1 { font-size:16px; margin:0; letter-spacing:.5px; }
+  header .sub { color:var(--muted); font-size:12px; }
+  main { display:grid; grid-template-columns: 340px 1fr; gap:14px; padding:14px 22px; }
+  .panel { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:14px; margin-bottom:14px; }
+  .panel h2 { font-size:13px; margin:0 0 10px; color:var(--accent2);
+    text-transform:uppercase; letter-spacing:1px; display:flex; justify-content:space-between; align-items:center; }
+  label { display:block; color:var(--muted); margin:8px 0 3px; font-size:12px; }
+  input, select, textarea { width:100%; background:var(--panel2); border:1px solid var(--line);
+    color:var(--text); border-radius:7px; padding:7px 9px; font-size:13px; outline:none; }
+  input:focus, select:focus, textarea:focus { border-color:var(--accent); }
+  button { background:var(--accent); color:#08111d; border:0; border-radius:7px;
+    padding:7px 12px; font-weight:600; cursor:pointer; font-size:12px; margin:4px 4px 0 0; }
+  button.sec { background:var(--panel2); color:var(--text); border:1px solid var(--line); }
+  button.warn { background:var(--warn); color:#20160a; }
+  button.bad { background:var(--bad); color:#2a0808; }
+  button:disabled { opacity:.45; cursor:not-allowed; }
+  .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+  .grid3 { display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px; }
+  .stat { background:var(--panel2); border:1px solid var(--line); border-radius:8px; padding:9px; }
+  .stat .k { color:var(--muted); font-size:11px; }
+  .stat .v { font-size:19px; font-weight:700; margin-top:2px; }
+  table { width:100%; border-collapse:collapse; font-size:12px; }
+  th, td { text-align:left; padding:6px 8px; border-bottom:1px solid var(--line); vertical-align:top; }
+  th { color:var(--muted); font-weight:600; position:sticky; top:0; background:var(--panel); }
+  tr:hover td { background:var(--panel2); }
+  .tag { display:inline-block; padding:1px 7px; border-radius:99px; font-size:11px; font-weight:600; }
+  .t-active { background:#16362266; color:var(--ok); border:1px solid #2c6b46; }
+  .t-superseded, .t-compacted { background:#3a241066; color:var(--warn); border:1px solid #6b4c2c; }
+  .t-scan { background:#13304d66; color:var(--accent); border:1px solid #2c557e; }
+  .t-skip { background:#1d332966; color:var(--ok); border:1px solid #2c6b46; }
+  .t-bad { background:#3d171766; color:var(--bad); border:1px solid #7e2c2c; }
+  .t-purple { background:#2c214066; color:var(--purple); border:1px solid #533b7a; }
+  .muted { color:var(--muted); }
+  .mono { font-family:ui-monospace, Menlo, Consolas, monospace; font-size:11px; }
+  .scroll { max-height:330px; overflow:auto; border:1px solid var(--line); border-radius:8px; }
+  .banner { padding:9px 12px; border-radius:8px; margin-bottom:10px; font-size:12px; display:none; }
+  .banner.err { background:#3d171766; border:1px solid #7e2c2c; color:#ffb3b3; display:block; }
+  .banner.ok { background:#16362266; border:1px solid #2c6b46; color:#b8f0cd; display:block; }
+  .banner.info { background:#13304d66; border:1px solid #2c557e; color:#c4ddff; display:block; }
+  .diff-badge { font-weight:700; }
+  .pill-row { display:flex; flex-wrap:wrap; gap:6px; margin-top:6px; }
+  .kv { color:var(--muted); } .kv b { color:var(--text); font-weight:600; }
+  .reason { color:var(--muted); font-size:11px; max-width:340px; }
+  pre.json { background:#0b0f15; border:1px solid var(--line); border-radius:8px;
+    padding:10px; overflow:auto; max-height:280px; font-size:11px; margin:6px 0 0; }
+  .tabs { display:flex; gap:6px; margin-bottom:10px; flex-wrap:wrap; }
+  .tabs button { margin:0; }
+  .tabs button.on { background:var(--accent2); color:#0c1a15; }
+  .hidden { display:none; }
+  .right { margin-left:auto; display:flex; gap:6px; align-items:center; }
+  .small { font-size:11px; }
+  .bar { height:8px; border-radius:4px; background:var(--panel2); overflow:hidden; margin-top:4px; }
+  .bar i { display:block; height:100%; background:var(--accent); }
+</style>
+</head>
+<body>
+<header>
+  <h1>🗂️ minilake</h1>
+  <span class="sub">版本化列统计 · 写入器 / 统计服务 / 查询服务 三组件 · 保守裁剪只多读不漏读</span>
+  <div class="right">
+    <span id="pausedBadge" class="tag t-purple">统计服务: ?</span>
+    <button class="sec" onclick="loadAll()">刷新</button>
+    <label class="small" style="margin:0; display:flex; align-items:center; gap:4px;">
+      <input type="checkbox" id="autoRefresh" style="width:auto" checked> 自动(2s)
+    </label>
+    <button class="bad" onclick="resetAll()">重置仓库</button>
+  </div>
+</header>
+
+<main>
+  <!-- ===================== 左列：操作 ===================== -->
+  <div>
+    <div class="panel">
+      <h2>总览</h2>
+      <div id="overview"></div>
+    </div>
+
+    <div class="panel">
+      <h2>① 发布规则（新版本）</h2>
+      <label>跟踪列（逗号分隔，发布后旧统计全部失可信）</label>
+      <input id="ruleCols" value="region, category, amount, status, qty">
+      <label>说明</label>
+      <input id="ruleDesc" value="初始裁剪规则">
+      <button onclick="publishRule()">发布新版本</button>
+    </div>
+
+    <div class="panel">
+      <h2>② 写入器</h2>
+      <div class="grid3">
+        <div><label>分区数</label><input id="pParts" type="number" value="6"></div>
+        <div><label>文件/分区</label><input id="pFiles" type="number" value="2"></div>
+        <div><label>行/文件</label><input id="pRows" type="number" value="800"></div>
+      </div>
+      <button onclick="ingest()">入仓真实数据</button>
+      <div class="grid2">
+        <div><label>迟到更新分区</label><input id="lateP" value="2026-11-02"></div>
+        <div><label>迟到行数</label><input id="lateN" type="number" value="120"></div>
+      </div>
+      <button class="warn" onclick="lateUpdate()">迟到更新（重写分区）</button>
+      <button class="sec" onclick="compact()">触发文件整理</button>
+    </div>
+
+    <div class="panel">
+      <h2>③ 统计服务</h2>
+      <div class="pill-row">
+        <button class="bad" onclick="pauseStats(true)">暂停统计</button>
+        <button class="sec" onclick="pauseStats(false)">恢复统计</button>
+      </div>
+      <label>重建模式</label>
+      <select id="rebuildMode">
+        <option value="full">全量重建（所有缺可信统计的文件）</option>
+        <option value="hotspot">按查询热点补建（历史扫描最多的文件）</option>
+      </select>
+      <button class="sec" onclick="rebuildPreview()">成本 / 有效性预估</button>
+      <button onclick="rebuildRun()">入队重建作业</button>
+      <pre id="rebuildOut" class="json hidden"></pre>
+    </div>
+  </div>
+
+  <!-- ===================== 右列：查询与观测 ===================== -->
+  <div>
+    <div class="panel">
+      <h2>④ 对照查询（统计裁剪计划 vs 全量基准）</h2>
+      <div id="banner"></div>
+      <label>过滤表达式（支持 AND/OR/NOT、= != &lt; &lt;= &gt; &gt;=、BETWEEN、IN、IS NULL，括号）</label>
+      <input id="filterText" value="region = 'north' AND amount &gt;= 500">
+      <div class="pill-row">
+        <button class="sec" onclick="query(true)">仅生成计划(dry-run)</button>
+        <button onclick="query(false)">执行并与基准对照</button>
+      </div>
+      <div class="pill-row small muted">
+        试试：<a href="#" onclick="setFilter('dt = \'2026-11-03\'');return false;">分区等值</a> ·
+        <a href="#" onclick="setFilter('status IN (\'paid\',\'done\')');return false;">IN</a> ·
+        <a href="#" onclick="setFilter('category IS NULL');return false;">IS NULL</a> ·
+        <a href="#" onclick="setFilter('NOT (amount &lt; 200)');return false;">NOT</a> ·
+        <a href="#" onclick="setFilter('qty BETWEEN 5 AND 10 OR region = \'west\'');return false;">OR+BETWEEN</a>
+      </div>
+      <div id="querySummary" style="margin-top:10px;"></div>
+      <div class="scroll" id="scanList" style="margin-top:8px;"></div>
+      <pre id="sampleRows" class="json hidden"></pre>
+    </div>
+
+    <div class="panel">
+      <h2>观测</h2>
+      <div class="tabs">
+        <button class="on" data-tab="files" onclick="showTab('files')">文件</button>
+        <button data-tab="stats" onclick="showTab('stats')">统计</button>
+        <button data-tab="jobs" onclick="showTab('jobs')">作业</button>
+        <button data-tab="queries" onclick="showTab('queries')">查询历史</button>
+        <button data-tab="rules" onclick="showTab('rules')">规则版本</button>
+        <button data-tab="workers" onclick="showTab('workers')">Worker</button>
+      </div>
+      <div id="tab-files" class="tabpane scroll"></div>
+      <div id="tab-stats" class="tabpane scroll hidden"></div>
+      <div id="tab-jobs" class="tabpane scroll hidden"></div>
+      <div id="tab-queries" class="tabpane scroll hidden"></div>
+      <div id="tab-rules" class="tabpane scroll hidden"></div>
+      <div id="tab-workers" class="tabpane"></div>
+    </div>
+  </div>
+</main>
+
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const fmtBytes = n => n == null ? '-' : n > 1048576 ? (n/1048576).toFixed(2)+' MB' : (n/1024).toFixed(1)+' KB';
+
+function banner(kind, msg) {
+  const b = $('banner');
+  b.className = 'banner ' + kind;
+  b.textContent = msg;
+}
+function setFilter(f) { $('filterText').value = f; }
+
+async function api(path, opts={}) {
+  const r = await fetch(path, {headers:{'Content-Type':'application/json'}, ...opts});
+  const data = await r.json();
+  if (data.error) throw new Error(data.error);
+  return data;
+}
+const post = (p, body={}) => api(p, {method:'POST', body: JSON.stringify(body)});
+
+// ------------------------------------------------------------ 操作
+async function publishRule() {
+  try {
+    const cols = $('ruleCols').value.split(',').map(s=>s.trim()).filter(Boolean);
+    const d = await post('/api/rules', {tracked_columns: cols, description: $('ruleDesc').value});
+    banner('info', `已发布规则 v${d.rule.version}：${d.warning}`);
+    loadAll();
+  } catch(e) { banner('err', e.message); }
+}
+async function ingest() {
+  try {
+    const d = await post('/api/ingest', {
+      partitions: +$('pParts').value, files_per_partition: +$('pFiles').value,
+      rows_per_file: +$('pRows').value,
+    });
+    banner('ok', `入仓作业已入队 ${d.job_id}，共 ${d.rows} 行（worker 异步写真实 JSONL 文件）`);
+    setTimeout(loadAll, 600);
+  } catch(e) { banner('err', e.message); }
+}
+async function lateUpdate() {
+  try {
+    const d = await post('/api/late-update', {partition_val: $('lateP').value, n: +$('lateN').value});
+    banner('warn', `迟到更新作业 ${d.job_id}：分区将重写为新 generation，旧统计立即失效`);
+    setTimeout(loadAll, 600);
+  } catch(e) { banner('err', e.message); }
+}
+async function compact() {
+  try {
+    const d = await post('/api/compact', {});
+    banner('warn', `整理作业 ${d.job_id}：合并小文件并标记 compacted，新文件等待统计补建`);
+    setTimeout(loadAll, 600);
+  } catch(e) { banner('err', e.message); }
+}
+async function pauseStats(p) {
+  await post(p ? '/api/stats/pause' : '/api/stats/resume', {});
+  banner(p ? 'info' : 'ok', p ? '统计服务已暂停：缺统计的文件将一直触发保守多读' : '统计服务已恢复，worker 将自动补建');
+  loadAll();
+}
+async function rebuildPreview() {
+  try {
+    const d = await post('/api/rebuild/preview', {mode: $('rebuildMode').value});
+    const o = $('rebuildOut'); o.classList.remove('hidden');
+    o.textContent = JSON.stringify(d, null, 2);
+    banner('info', `预估：扫描 ${d.cost.files_to_scan} 个文件 / ${d.cost.rows_to_scan} 行 / ${fmtBytes(d.cost.bytes_to_scan)}`);
+  } catch(e) { banner('err', e.message); }
+}
+async function rebuildRun() {
+  try {
+    const d = await post('/api/rebuild', {mode: $('rebuildMode').value});
+    banner('ok', `重建作业已入队 ${d.job_id}（${d.mode}）`);
+    setTimeout(loadAll, 600);
+  } catch(e) { banner('err', e.message); }
+}
+async function query(dry) {
+  try {
+    const d = await post('/api/query', {filter: $('filterText').value, dry_run: dry});
+    if (dry) { renderPlanOnly(d); return; }
+    renderQueryResult(d);
+    loadAll();
+  } catch(e) { banner('err', e.message); }
+}
+async function resetAll() {
+  if (!confirm('确认清空整个仓库（数据文件 + 目录）？')) return;
+  await post('/api/reset', {});
+  banner('info', '仓库已重置为空目录');
+  loadAll();
+}
+
+// ------------------------------------------------------------ 渲染：查询
+function renderPlanOnly(d) {
+  banner('info', `dry-run：规则 v${d.rule_version ?? '?'}，引用列 [${d.referenced_columns.join(', ')}]，计划扫描 ${d.scan_count}/${d.files.length}`);
+  $('querySummary').innerHTML = '';
+  $('sampleRows').classList.add('hidden');
+  $('scanList').innerHTML = scanTable(d.files.map(f => ({
+    file_id:f.file_id, partition_name:f.partition_name, row_count:f.row_count,
+    byte_size:f.byte_size, generation:f.generation, in_plan:f.scan,
+    reason:f.reason, trusted:f.trusted,
+  })), true);
+}
+function renderQueryResult(d) {
+  const ok = d.result_matches_baseline;
+  banner(ok ? 'ok' : 'err',
+    ok ? `正确性校验通过：裁剪计划结果与全量基准完全一致（${d.result_rows} 行）`
+       : '结果不一致！已自动保留全部文件，请检查统计可信度逻辑');
+  const pct = d.bytes_pruned_pct;
+  $('querySummary').innerHTML = `
+    <div class="grid3">
+      <div class="stat"><div class="k">计划扫描 / 基准</div><div class="v">${d.planned_files} / ${d.baseline_files}</div></div>
+      <div class="stat"><div class="k">读取字节节省</div><div class="v">${pct}%</div>
+        <div class="bar"><i style="width:${pct}%"></i></div></div>
+      <div class="stat"><div class="k">耗时 计划/基准</div><div class="v" style="font-size:15px">${d.planned_ms} / ${d.baseline_ms} ms</div></div>
+    </div>
+    <p class="kv small" style="margin-top:8px">
+      计划 <b>${fmtBytes(d.planned_bytes)}</b> · 基准 <b>${fmtBytes(d.baseline_bytes)}</b> ·
+      节省 <b>${fmtBytes(d.bytes_saved)}</b> · 查询ID <b class="mono">${d.query_id}</b>
+      <span class="tag ${ok?'t-active':'t-bad'}">${ok?'结果一致':'结果不符'}</span>
+    </p>`;
+  $('scanList').innerHTML = scanTable(d.scans, false);
+  const sr = $('sampleRows');
+  if (d.sample_rows.length) { sr.classList.remove('hidden'); sr.textContent = JSON.stringify(d.sample_rows.slice(0,5), null, 2); }
+  else sr.classList.add('hidden');
+}
+function scanTable(rows, dry) {
+  let h = `<table><thead><tr>
+    <th>文件</th><th>分区</th><th>代际</th><th>行/大小</th><th>统计可信</th><th>计划</th><th>判定依据</th>
+    </tr></thead><tbody>`;
+  for (const f of rows) {
+    const scan = dry ? f.scan : f.in_plan;
+    h += `<tr>
+      <td class="mono">${esc(f.file_id.slice(0,12))}</td>
+      <td>${esc(f.partition_name)}</td>
+      <td>g${f.generation ?? '-'}</td>
+      <td>${f.row_count ?? '-'}<br><span class="muted">${fmtBytes(f.byte_size)}</span></td>
+      <td>${f.trusted ? '<span class="tag t-active">可信</span>' : '<span class="tag t-superseded">不可信</span>'}</td>
+      <td>${scan ? '<span class="tag t-scan">扫描</span>' : '<span class="tag t-skip">跳过</span>'}</td>
+      <td class="reason">${esc(f.reason ?? f.skip_reason ?? f.scan_reason ?? '-')}</td>
+    </tr>`;
+  }
+  return h + '</tbody></table>';
+}
+
+// ------------------------------------------------------------ 渲染：总览与标签页
+function renderOverview(d) {
+  const bs = d.files_by_status || {};
+  $('pausedBadge').className = 'tag ' + (d.stats_paused ? 't-bad' : 't-active');
+  $('pausedBadge').textContent = '统计服务: ' + (d.stats_paused ? '已暂停' : '运行中');
+  $('overview').innerHTML = `
+    <div class="grid2">
+      <div class="stat"><div class="k">当前规则</div><div class="v">${d.rule ? 'v'+d.rule.version : '无'}</div></div>
+      <div class="stat"><div class="k">active 文件</div><div class="v">${d.active_files}</div></div>
+      <div class="stat"><div class="k">可信统计</div><div class="v" style="color:var(--ok)">${d.trusted_stats}</div></div>
+      <div class="stat"><div class="k">失可信/缺失</div><div class="v" style="color:var(--warn)">${d.files_without_trusted_stats}</div></div>
+    </div>
+    <p class="kv small" style="margin-top:8px">
+      superseded: <b>${bs.superseded?.n ?? 0}</b> · compacted: <b>${bs.compacted?.n ?? 0}</b> ·
+      排队作业: <b>${d.queued_jobs}</b>
+    </p>
+    ${d.rule ? `<p class="small muted">跟踪列: ${d.rule.tracked_columns.join(', ')}</p>` : ''}`;
+}
+function showTab(tab) {
+  document.querySelectorAll('.tabs button').forEach(b => b.classList.toggle('on', b.dataset.tab===tab));
+  document.querySelectorAll('.tabpane').forEach(p => p.classList.add('hidden'));
+  $('tab-'+tab).classList.remove('hidden');
+}
+function renderFiles(d) {
+  let h = `<table><thead><tr><th>文件</th><th>表</th><th>分区</th><th>状态</th><th>代际</th><th>行</th><th>大小</th></tr></thead><tbody>`;
+  for (const f of d.files) {
+    h += `<tr><td class="mono">${esc(f.file_id.slice(0,12))}</td><td>${esc(f.table_name)}</td>
+      <td>${esc(f.partition_name)}</td>
+      <td><span class="tag t-${f.status}">${f.status}</span></td>
+      <td>g${f.generation}</td><td>${f.row_count}</td><td>${fmtBytes(f.byte_size)}</td></tr>`;
+  }
+  $('tab-files').innerHTML = h + '</tbody></table>';
+}
+function renderStats(d, ruleVersion) {
+  let h = `<table><thead><tr><th>文件</th><th>统计规则版本</th><th>文件代际</th><th>状态</th><th>可信</th><th>列统计摘要</th><th>构建ms</th></tr></thead><tbody>`;
+  for (const s of d.stats) {
+    const trusted = s.rule_version===ruleVersion && s.status==='active';
+    const cols = Object.entries(s.columns).map(([k,v]) =>
+      `${k}:[${v.min ?? '∅'}..${v.max ?? '∅'}]${v.complete ? '' : '(基数超限)'}`).join('<br>');
+    h += `<tr><td class="mono">${esc(s.file_id.slice(0,12))}</td><td>v${s.rule_version}</td>
+      <td>g${s.generation}</td><td>${esc(s.status)}</td>
+      <td>${trusted ? '<span class="tag t-active">可信</span>' : '<span class="tag t-bad">失可信</span>'}</td>
+      <td class="reason">${cols}</td><td>${s.build_ms.toFixed(2)}</td></tr>`;
+  }
+  $('tab-stats').innerHTML = h + '</tbody></table>';
+}
+function renderJobs(d) {
+  let h = `<table><thead><tr><th>作业</th><th>类型</th><th>状态</th><th>消息</th><th>成本/结果</th></tr></thead><tbody>`;
+  for (const j of d.jobs) {
+    const cls = j.status==='done' ? 't-active' : j.status==='failed' ? 't-bad' : j.status==='running' ? 't-scan' : 't-superseded';
+    h += `<tr><td class="mono">${esc(j.job_id.slice(0,10))}</td><td>${esc(j.job_type)}</td>
+      <td><span class="tag ${cls}">${j.status}</span></td><td class="reason">${esc(j.message)}</td>
+      <td class="reason mono">${esc(JSON.stringify(j.cost))}</td></tr>`;
+  }
+  $('tab-jobs').innerHTML = h + '</tbody></table>';
+}
+async function renderQueries(d) {
+  let h = `<table><thead><tr><th>查询</th><th>过滤</th><th>计划/基准</th><th>节省</th><th>一致</th><th>扫描清单</th></tr></thead><tbody>`;
+  for (const q of d.queries) {
+    const pct = q.baseline_bytes ? (100*(q.baseline_bytes-q.planned_bytes)/q.baseline_bytes).toFixed(1) : '0';
+    h += `<tr><td class="mono">${esc(q.query_id.slice(0,10))}</td>
+      <td class="reason">${esc(q.filter_text)}</td>
+      <td>${q.planned_files}/${q.baseline_files}（共${q.total_files}）</td>
+      <td>${pct}%</td>
+      <td>${q.result_matches ? '<span class="tag t-active">✓</span>' : '<span class="tag t-bad">✗</span>'}</td>
+      <td><button class="sec" onclick="queryDetail('${q.query_id}')">查看差异</button></td></tr>`;
+  }
+  $('tab-queries').innerHTML = h + '</tbody></table>';
+}
+async function queryDetail(qid) {
+  const d = await api('/api/queries/' + qid);
+  let h = `<p class="kv small">查询 <b class="mono">${esc(d.query.query_id)}</b>：${esc(d.query.filter_text)}</p>`;
+  h += scanTable(d.scans.map(s => ({...s, generation:null, reason: s.in_plan ? s.scan_reason : s.skip_reason})), false);
+  const onlyBaseline = d.scans.filter(s => s.in_baseline && !s.in_plan);
+  h += `<p class="small muted" style="margin-top:6px">基准比计划多读 ${onlyBaseline.length} 个文件（即统计裁剪跳过的文件）；计划清单永远是基准清单的子集。</p>`;
+  $('tab-queries').innerHTML = h;
+}
+function renderRules(d) {
+  let h = `<table><thead><tr><th>版本</th><th>跟踪列</th><th>说明</th><th>发布时间</th></tr></thead><tbody>`;
+  for (const r of d.rules) {
+    h += `<tr><td>v${r.version}</td><td>${esc(r.tracked_columns.join(', '))}</td>
+      <td>${esc(r.description)}</td><td class="muted">${new Date(r.created_at*1000).toLocaleString()}</td></tr>`;
+  }
+  $('tab-rules').innerHTML = h + '</tbody></table>';
+}
+
+let overviewCache = null;
+async function loadAll() {
+  try {
+    const [ov, files, stats, jobs, queries, rules] = await Promise.all([
+      api('/api/overview'), api('/api/files'), api('/api/stats'),
+      api('/api/jobs'), api('/api/queries'), api('/api/rules'),
+    ]);
+    overviewCache = ov;
+    renderOverview(ov);
+    renderFiles(files);
+    renderStats(stats, ov.rule?.version);
+    renderJobs(jobs);
+    renderQueries(queries);
+    renderRules(rules);
+    $('tab-workers').innerHTML = '<table><thead><tr><th>Worker</th><th>存活</th><th>最近一次动作</th></tr></thead><tbody>'
+      + ov.workers.map(w => `<tr><td>${esc(w.worker)}</td><td>${esc(w.alive)}</td>
+        <td class="reason mono">${esc(w.last)}</td></tr>`).join('') + '</tbody></table>';
+  } catch(e) { banner('err', '加载失败: ' + e.message); }
+}
+setInterval(() => { if ($('autoRefresh').checked) loadAll(); }, 2000);
+loadAll();
+</script>
+</body>
+</html>
